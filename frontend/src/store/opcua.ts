@@ -227,6 +227,73 @@ export const useOpcuaStore = defineStore('opcua', () => {
     return variables
   }
 
+  // 获取所有节点（扁平化）
+  function getAllNodes(): OPCUANode[] {
+    const allNodes: OPCUANode[] = []
+    function traverse(nodes: OPCUANode[]) {
+      nodes.forEach(node => {
+        allNodes.push(node)
+        if (node.children) {
+          traverse(node.children)
+        }
+      })
+    }
+    traverse(nodeTree.value)
+    return allNodes
+  }
+
+  // 搜索节点（按名称和编号）
+  function searchNodes(keyword: string): OPCUANode[] {
+    if (!keyword.trim()) return []
+    const lowerKeyword = keyword.toLowerCase().trim()
+    const allNodes = getAllNodes()
+    return allNodes.filter(node => {
+      const nameMatch = node.name.toLowerCase().includes(lowerKeyword)
+      const nodeIdMatch = node.nodeId.toLowerCase().includes(lowerKeyword)
+      const idMatch = node.id.toLowerCase().includes(lowerKeyword)
+      return nameMatch || nodeIdMatch || idMatch
+    })
+  }
+
+  // 获取节点路径（从根到目标节点的所有祖先节点ID）
+  function getNodePath(targetId: string): string[] {
+    const path: string[] = []
+    function traverse(nodes: OPCUANode[], ancestors: string[]): boolean {
+      for (const node of nodes) {
+        const currentPath = [...ancestors, node.id]
+        if (node.id === targetId) {
+          path.push(...currentPath)
+          return true
+        }
+        if (node.children && node.children.length > 0) {
+          if (traverse(node.children, currentPath)) {
+            return true
+          }
+        }
+      }
+      return false
+    }
+    traverse(nodeTree.value, [])
+    return path
+  }
+
+  // 根据ID查找节点
+  function findNodeById(targetId: string): OPCUANode | null {
+    function traverse(nodes: OPCUANode[]): OPCUANode | null {
+      for (const node of nodes) {
+        if (node.id === targetId) {
+          return node
+        }
+        if (node.children && node.children.length > 0) {
+          const found = traverse(node.children)
+          if (found) return found
+        }
+      }
+      return null
+    }
+    return traverse(nodeTree.value)
+  }
+
   // 选择节点
   function selectNode(node: OPCUANode) {
     selectedNode.value = node
@@ -298,6 +365,10 @@ export const useOpcuaStore = defineStore('opcua', () => {
     connect,
     disconnect,
     getAllVariableNodes,
+    getAllNodes,
+    searchNodes,
+    getNodePath,
+    findNodeById,
     // 计算属性
     activeAlarmsCount,
     criticalAlarmsCount
