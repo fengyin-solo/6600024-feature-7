@@ -7,7 +7,7 @@
       </el-tag>
     </div>
 
-    <div class="search-section">
+    <div ref="searchSectionRef" class="search-section">
       <el-input
         v-model="searchKeyword"
         placeholder="搜索节点名称或编号..."
@@ -22,8 +22,14 @@
           <el-icon><Search /></el-icon>
         </template>
       </el-input>
+    </div>
 
-      <div v-if="showSearchResult && searchResults.length > 0" class="search-results">
+    <Teleport to="body">
+      <div
+        v-if="showSearchResult && searchResults.length > 0"
+        class="search-results search-results-dropdown"
+        :style="dropdownStyle"
+      >
         <div
           v-for="(node, index) in searchResults"
           :key="node.id"
@@ -47,10 +53,14 @@
         </div>
       </div>
 
-      <div v-if="showSearchResult && searchKeyword.trim() && searchResults.length === 0" class="search-results search-no-result">
+      <div
+        v-if="showSearchResult && searchKeyword.trim() && searchResults.length === 0"
+        class="search-results search-no-result search-results-dropdown"
+        :style="dropdownStyle"
+      >
         <el-empty description="未找到匹配节点" :image-size="40" />
       </div>
-    </div>
+    </Teleport>
 
     <el-tree
       ref="treeRef"
@@ -141,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Folder, DataLine, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElTree } from 'element-plus'
 import { useOpcuaStore } from '../store/opcua'
@@ -150,10 +160,12 @@ import type { OPCUANode } from '../types'
 const store = useOpcuaStore()
 
 const treeRef = ref<InstanceType<typeof ElTree> | null>(null)
+const searchSectionRef = ref<HTMLElement | null>(null)
 const searchKeyword = ref('')
 const searchResults = ref<OPCUANode[]>([])
 const showSearchResult = ref(false)
 const hoveredIndex = ref(-1)
+const dropdownStyle = reactive({ left: '0px', top: '0px', width: '0px' })
 
 const treeProps = {
   children: 'children',
@@ -165,10 +177,19 @@ const isSubscribed = computed(() => {
   return store.subscriptions.has(store.selectedNode.id)
 })
 
+function updateDropdownPosition() {
+  if (!searchSectionRef.value) return
+  const rect = searchSectionRef.value.getBoundingClientRect()
+  dropdownStyle.left = `${rect.left}px`
+  dropdownStyle.top = `${rect.bottom + 4}px`
+  dropdownStyle.width = `${rect.width}px`
+}
+
 function handleSearchInput() {
   doSearch()
   showSearchResult.value = true
   hoveredIndex.value = -1
+  updateDropdownPosition()
 }
 
 function handleSearchFocus() {
@@ -176,6 +197,7 @@ function handleSearchFocus() {
     doSearch()
   }
   showSearchResult.value = true
+  nextTick(updateDropdownPosition)
 }
 
 function handleSearchEnter() {
@@ -216,10 +238,6 @@ async function locateAndSelectNode(nodeId: string) {
   if (path.length === 0) return
 
   await nextTick()
-
-  for (let i = 0; i < path.length - 1; i++) {
-    treeRef.value?.setCurrentKey(path[i])
-  }
 
   const parentKeys = path.slice(0, -1)
   for (const key of parentKeys) {
@@ -268,14 +286,35 @@ function handleReadValue() {
 
 function handleClickOutside(e: MouseEvent) {
   const target = e.target as HTMLElement
-  const searchSection = document.querySelector('.search-section')
-  if (searchSection && !searchSection.contains(target)) {
+  const inSearchSection = searchSectionRef.value?.contains(target)
+  const inDropdown = target.closest('.search-results-dropdown')
+  if (!inSearchSection && !inDropdown) {
     showSearchResult.value = false
   }
 }
 
+function handleScrollOrResize() {
+  if (showSearchResult.value) {
+    updateDropdownPosition()
+  }
+}
+
+watch(showSearchResult, (val) => {
+  if (val) {
+    nextTick(updateDropdownPosition)
+  }
+})
+
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
+  document.addEventListener('click', handleClickOutside, true)
+  window.addEventListener('resize', handleScrollOrResize)
+  window.addEventListener('scroll', handleScrollOrResize, true)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside, true)
+  window.removeEventListener('resize', handleScrollOrResize)
+  window.removeEventListener('scroll', handleScrollOrResize, true)
 })
 </script>
 
@@ -284,7 +323,6 @@ onMounted(() => {
   height: 100%;
   overflow-y: auto;
   padding: 12px;
-  position: relative;
 }
 
 .tree-header {
@@ -295,9 +333,7 @@ onMounted(() => {
 }
 
 .search-section {
-  position: relative;
   margin-bottom: 12px;
-  z-index: 10;
 }
 
 .search-input {
@@ -305,17 +341,17 @@ onMounted(() => {
 }
 
 .search-results {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
   max-height: 320px;
   overflow-y: auto;
   background: #1e293b;
   border: 1px solid rgba(71, 85, 105, 0.8);
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  z-index: 100;
+}
+
+.search-results-dropdown {
+  position: fixed;
+  z-index: 9999;
 }
 
 .search-no-result {
